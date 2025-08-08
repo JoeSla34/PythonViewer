@@ -40,11 +40,10 @@
       </div>
 
       <textarea id="editor" spellcheck="false">
-# Example: Project Euler Problem 1 (the approach you gave earlier)
 numbers = []
 
-# Count to 1000 and add each number to the list
-for i in range(1, 1000):
+# Count to 1000 in steps of 5 and add each number to the list
+for i in range(5, 1000, 5):
     numbers.append(i)
 
 # Count in 3's and add numbers if they aren't already in the list
@@ -55,7 +54,7 @@ for i in range(3, 1000, 3):
 # Add up all the numbers in the list
 total = sum(numbers)
 
-print("Total:", total)
+print(total)
       </textarea>
     </div>
 
@@ -78,13 +77,11 @@ print("Total:", total)
 
   <!-- Pyodide (WebAssembly Python) -->
   <script>
-    // Use a known Pyodide release via CDN
     const PYODIDE_SRC = "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js";
   </script>
   <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
 
   <script>
-    // Basic DOM refs
     const editor = document.getElementById('editor');
     const viewer = document.getElementById('viewer');
     const output = document.getElementById('output');
@@ -94,11 +91,9 @@ print("Total:", total)
     const stopBtn = document.getElementById('stopBtn');
     const loadExample = document.getElementById('loadExample');
 
-    // Initial highlight from textarea
     function updateViewer() {
       const code = editor.value.replace(/\t/g, '    ');
       viewer.textContent = code;
-      // Ask highlight.js to highlight the element
       if (window.hljs) {
         hljs.highlightElement(viewer);
       }
@@ -106,11 +101,10 @@ print("Total:", total)
 
     highlightBtn.addEventListener('click', updateViewer);
     loadExample.addEventListener('click', () => {
-      // Put your exact English->Python translation into the editor (example used earlier)
       editor.value = `numbers = []
 
-# Count to 1000 and add each number to the list
-for i in range(1, 1000):
+# Count to 1000 in steps of 5 and add each number to the list
+for i in range(5, 1000, 5):
     numbers.append(i)
 
 # Count in 3's and add numbers if they aren't already in the list
@@ -121,17 +115,14 @@ for i in range(3, 1000, 3):
 # Add up all the numbers in the list
 total = sum(numbers)
 
-print("Total:", total)
+print(total)
 `;
       updateViewer();
     });
 
-    // Highlight at load
     updateViewer();
 
-    // Pyodide runner
     let pyodide = null;
-    let runController = { stopRequested: false };
 
     async function ensurePyodide() {
       if (pyodide) return pyodide;
@@ -139,12 +130,9 @@ print("Total:", total)
       runBtn.disabled = true;
       try {
         pyodide = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/" });
-        // Provide a small util to capture stdout/stderr
         await pyodide.runPythonAsync(`
 import sys, js
 class Console:
-    def __init__(self):
-        pass
     def write(self, data):
         if data:
             js.console_write(data)
@@ -163,69 +151,38 @@ sys.stderr = Console()
       return pyodide;
     }
 
-    // Hook JS function that Python can call to append console text
     window.console_write = (text) => {
-      // Append and keep scroll at bottom
       output.textContent += text;
       output.scrollTop = output.scrollHeight;
     };
 
-    // Run code
     runBtn.addEventListener('click', async () => {
       runBtn.disabled = true;
       stopBtn.disabled = false;
-      output.textContent = ""; // clear
-      runController.stopRequested = false;
-
+      output.textContent = "";
       await ensurePyodide();
-
       if (!pyodide) {
         output.textContent = "Pyodide failed to load.";
         runBtn.disabled = false;
         stopBtn.disabled = true;
         return;
       }
-
-      // Provide a way to interrupt by setting a flag (simple cooperative stop)
-      const userCode = editor.value;
-      const wrapped = `
-import sys, time
-__stop_flag__ = False
-def __check_stop__():
-    global __stop_flag__
-    if js.run_stop_requested:
-        raise KeyboardInterrupt("Execution stopped by user")
-
-# User code starts here
-${userCode}
-# User code ends here
-`;
-
-      // Expose run_stop_requested to Python via js object
-      window.run_stop_requested = false;
-
       try {
-        // Run async so the UI doesn't lock
-        await pyodide.runPythonAsync(wrapped);
+        await pyodide.runPythonAsync(editor.value);
       } catch (err) {
-        // Pyodide exceptions are PythonError objects; str() them
         output.textContent += "\n[Error]\n" + err + "\n";
         console.error(err);
       } finally {
         runBtn.disabled = false;
         stopBtn.disabled = true;
-        window.run_stop_requested = false;
       }
     });
 
-    // Stop button: set flag. Note: Pyodide cannot reliably hard-kill a long running CPU loop from JS.
     stopBtn.addEventListener('click', () => {
-      window.run_stop_requested = true;
-      status.textContent = "Stop requested — if the program checks the flag it will stop.";
+      status.textContent = "Stop requested — but Pyodide can’t reliably kill running code.";
       stopBtn.disabled = true;
     });
 
-    // Allow Ctrl+Enter to run
     editor.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -233,11 +190,8 @@ ${userCode}
       }
     });
 
-    // On page load, pre-load Pyodide in the background (optional)
-    // Comment out the following line if you want to delay loading until user clicks Run
     ensurePyodide();
 
-    // Initial instruction: click Highlight to refresh viewer
     status.textContent = "Ready — click Highlight to refresh viewer, or Run to execute.";
   </script>
 </body>
