@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Python Viewer & Runner</title>
+
+  <!-- Highlight.js for syntax highlighting -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/default.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin: 18px; }
+    h1 { margin-top: 0; }
+    .container { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+    .panel { border: 1px solid #ddd; border-radius: 8px; padding: 12px; background: #fafafa; }
+    textarea { width: 100%; height: 420px; font-family: "SFMono-Regular", Menlo, Monaco, "Roboto Mono", monospace; font-size: 13px; padding: 10px; box-sizing: border-box; }
+    pre { max-height: 420px; overflow: auto; padding: 10px; background: #f6f8fa; border-radius: 6px; }
+    .controls { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+    button { padding: 8px 12px; border-radius:6px; border:1px solid #bbb; background: white; cursor:pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #output { white-space: pre-wrap; background: #111; color: #e6e6e6; padding: 10px; min-height: 120px; border-radius: 6px; font-family: monospace; }
+    .full-width { grid-column: 1 / -1; }
+    small { color:#666; }
+  </style>
+</head>
+<body>
+
+  <h1>Python Viewer & Runner</h1>
+  <p>This page shows Python code with syntax highlighting and can run it locally using <strong>Pyodide</strong> (Python compiled to WebAssembly). Paste or edit code on the left, click <em>Highlight</em> to update the viewer and <em>Run</em> to execute it.</p>
+
+  <div class="container">
+    <div class="panel">
+      <div class="controls">
+        <button id="highlightBtn">Highlight</button>
+        <button id="runBtn">Run (Pyodide)</button>
+        <button id="stopBtn" disabled>Stop</button>
+        <button id="loadExample">Load Example</button>
+      </div>
+
+      <textarea id="editor" spellcheck="false">
+# Example: Project Euler Problem 1 (the approach you gave earlier)
+numbers = []
+
+# Count to 1000 and add each number to the list
+for i in range(1, 1000):
+    numbers.append(i)
+
+# Count in 3's and add numbers if they aren't already in the list
+for i in range(3, 1000, 3):
+    if i not in numbers:
+        numbers.append(i)
+
+# Add up all the numbers in the list
+total = sum(numbers)
+
+print("Total:", total)
+      </textarea>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <strong>Highlighted Viewer</strong>
+        <small>language: python</small>
+      </div>
+      <pre><code id="viewer" class="language-python"></code></pre>
+    </div>
+
+    <div class="panel full-width">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <strong>Output Console</strong>
+        <small id="status">Pyodide not loaded</small>
+      </div>
+      <div id="output">Output will appear here after running code.</div>
+    </div>
+  </div>
+
+  <!-- Pyodide (WebAssembly Python) -->
+  <script>
+    // Use a known Pyodide release via CDN
+    const PYODIDE_SRC = "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js";
+  </script>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+
+  <script>
+    // Basic DOM refs
+    const editor = document.getElementById('editor');
+    const viewer = document.getElementById('viewer');
+    const output = document.getElementById('output');
+    const status = document.getElementById('status');
+    const highlightBtn = document.getElementById('highlightBtn');
+    const runBtn = document.getElementById('runBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const loadExample = document.getElementById('loadExample');
+
+    // Initial highlight from textarea
+    function updateViewer() {
+      const code = editor.value.replace(/\t/g, '    ');
+      viewer.textContent = code;
+      // Ask highlight.js to highlight the element
+      if (window.hljs) {
+        hljs.highlightElement(viewer);
+      }
+    }
+
+    highlightBtn.addEventListener('click', updateViewer);
+    loadExample.addEventListener('click', () => {
+      // Put your exact English->Python translation into the editor (example used earlier)
+      editor.value = `numbers = []
+
+# Count to 1000 and add each number to the list
+for i in range(1, 1000):
+    numbers.append(i)
+
+# Count in 3's and add numbers if they aren't already in the list
+for i in range(3, 1000, 3):
+    if i not in numbers:
+        numbers.append(i)
+
+# Add up all the numbers in the list
+total = sum(numbers)
+
+print("Total:", total)
+`;
+      updateViewer();
+    });
+
+    // Highlight at load
+    updateViewer();
+
+    // Pyodide runner
+    let pyodide = null;
+    let runController = { stopRequested: false };
+
+    async function ensurePyodide() {
+      if (pyodide) return pyodide;
+      status.textContent = "Loading Pyodide (this may take a few seconds)...";
+      runBtn.disabled = true;
+      try {
+        pyodide = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/" });
+        // Provide a small util to capture stdout/stderr
+        await pyodide.runPythonAsync(`
+import sys, js
+class Console:
+    def __init__(self):
+        pass
+    def write(self, data):
+        if data:
+            js.console_write(data)
+    def flush(self):
+        pass
+sys.stdout = Console()
+sys.stderr = Console()
+`);
+        status.textContent = "Pyodide loaded";
+        runBtn.disabled = false;
+      } catch (err) {
+        status.textContent = "Failed to load Pyodide";
+        console.error(err);
+        runBtn.disabled = true;
+      }
+      return pyodide;
+    }
+
+    // Hook JS function that Python can call to append console text
+    window.console_write = (text) => {
+      // Append and keep scroll at bottom
+      output.textContent += text;
+      output.scrollTop = output.scrollHeight;
+    };
+
+    // Run code
+    runBtn.addEventListener('click', async () => {
+      runBtn.disabled = true;
+      stopBtn.disabled = false;
+      output.textContent = ""; // clear
+      runController.stopRequested = false;
+
+      await ensurePyodide();
+
+      if (!pyodide) {
+        output.textContent = "Pyodide failed to load.";
+        runBtn.disabled = false;
+        stopBtn.disabled = true;
+        return;
+      }
+
+      // Provide a way to interrupt by setting a flag (simple cooperative stop)
+      const userCode = editor.value;
+      const wrapped = `
+import sys, time
+__stop_flag__ = False
+def __check_stop__():
+    global __stop_flag__
+    if js.run_stop_requested:
+        raise KeyboardInterrupt("Execution stopped by user")
+
+# User code starts here
+${userCode}
+# User code ends here
+`;
+
+      // Expose run_stop_requested to Python via js object
+      window.run_stop_requested = false;
+
+      try {
+        // Run async so the UI doesn't lock
+        await pyodide.runPythonAsync(wrapped);
+      } catch (err) {
+        // Pyodide exceptions are PythonError objects; str() them
+        output.textContent += "\n[Error]\n" + err + "\n";
+        console.error(err);
+      } finally {
+        runBtn.disabled = false;
+        stopBtn.disabled = true;
+        window.run_stop_requested = false;
+      }
+    });
+
+    // Stop button: set flag. Note: Pyodide cannot reliably hard-kill a long running CPU loop from JS.
+    stopBtn.addEventListener('click', () => {
+      window.run_stop_requested = true;
+      status.textContent = "Stop requested — if the program checks the flag it will stop.";
+      stopBtn.disabled = true;
+    });
+
+    // Allow Ctrl+Enter to run
+    editor.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        runBtn.click();
+      }
+    });
+
+    // On page load, pre-load Pyodide in the background (optional)
+    // Comment out the following line if you want to delay loading until user clicks Run
+    ensurePyodide();
+
+    // Initial instruction: click Highlight to refresh viewer
+    status.textContent = "Ready — click Highlight to refresh viewer, or Run to execute.";
+  </script>
+</body>
+</html>
